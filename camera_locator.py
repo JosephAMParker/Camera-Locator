@@ -2,14 +2,13 @@
 """
 SYNOPSIS
 
-    TODO helloworld [-h,--help] [-v,--verbose] [--version]
+    camera_locator [-h,--help] [-f,--filename]
 
 DESCRIPTION
 
-    TODO This describes how to use this script. This docstring
-    will be printed by the script if there is an error or
-    if the user requests help (-h or --help).
-
+    A python program that when given an image of a marker determines the location of the camera that took that picture. 
+    The camera is visualized in a matplotlib 3d plot and presented next to the picture. 
+    
 EXAMPLES
 
     to run all jpgs in imgs directory:
@@ -23,6 +22,7 @@ EXAMPLES
 
 AUTHOR
     joeyparker47@gmail.com
+
 """
 
 import sys, os, traceback, optparse, time, glob
