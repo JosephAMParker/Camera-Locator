@@ -26,7 +26,6 @@ AUTHOR
 """
 
 import sys, os, traceback, optparse, time, glob
-
 from scipy.spatial.distance import pdist, cdist, squareform
 
 from matplotlib import rcParams
@@ -37,11 +36,8 @@ import numpy as np
 import cv2
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
-# implement the default mpl key bindings
 from matplotlib.backend_bases import key_press_handler
-
 from matplotlib.figure import Figure
-
 
 if sys.version_info[0] < 3:
     import Tkinter as Tk
@@ -139,6 +135,7 @@ def getCameraLocationInfo(corners,sizes):
     camera_positions = []
     camera_pointsAt  = []
     camera_render    = []
+    max_x = max_y = max_z = 0
     for i,corner_points in enumerate(corners):
     
         focal_length = sizes[i][0]
@@ -157,7 +154,7 @@ def getCameraLocationInfo(corners,sizes):
         cameraMatrix  = np.eye(3) 
         ret,rvec,tvec = cv2.solvePnP(world_array,image_points,camera_matrix,np.array([]))
         rotM_cam = cv2.Rodrigues(rvec)[0]
-        
+
         #rvec,tvec, the rotational matrix and translational array describing going from camera to model
         #put into a 4,4 matrix and get the inverse to get rvec and tvec describing going from model to camera. 
         #camera location is then tvec
@@ -170,6 +167,13 @@ def getCameraLocationInfo(corners,sizes):
         b = inv(b)
 
         camera_position = b[:-1,3]
+        if camera_position[0] > max_x:
+            max_x = np.abs(camera_position[0])
+        if camera_position[1] > max_y:
+            max_y = np.abs(camera_position[1])
+        if camera_position[2] > max_z:
+            max_z = np.abs(camera_position[2])
+
         camera_positions.append(camera_position)
         camera_pointsAt.append(camera_position - b[:-1,2] * (camera_position[2] / b[:-1,2][2]))
 
@@ -182,7 +186,7 @@ def getCameraLocationInfo(corners,sizes):
         
         camera_render.append(camera_points)
 
-    return camera_positions, camera_pointsAt, camera_render
+    return camera_positions, camera_pointsAt, camera_render, max_x, max_y, max_z
 
 def getCornersOfQRCode(images):
     '''
@@ -312,7 +316,7 @@ def loadImages(filenames):
         b,g,r  = cv2.split(im)
 
         original = Image.fromarray(cv2.merge((r,g,b)))
-        resized = original.resize((int(size[1]/6), int(size[0]/6)),Image.ANTIALIAS)
+        resized = original.resize((int(size[1]/5), int(size[0]/5)),Image.ANTIALIAS)
         tkimages.append(ImageTk.PhotoImage(resized))
 
     return cvimages, tkimages, sizes
@@ -327,7 +331,7 @@ class tkGUI:
 
     '''
 
-    def __init__(self, master, tkimages, camera_positions, camera_pointsAt, camera_render):
+    def __init__(self, master, tkimages, camera_positions, camera_pointsAt, camera_render, max_x, max_y, max_z):
 
         self.index  = 0
         self.master = master
@@ -335,7 +339,21 @@ class tkGUI:
         self.camera_positions = camera_positions
         self.camera_pointsAt  = camera_pointsAt
         self.camera_render    = camera_render
-        
+
+        self.max_x = max_x
+        self.max_y = max_y
+        self.max_z = max_z
+
+        self.fig    = Figure()
+        self.canvas = FigureCanvasTkAgg(figure=self.fig, master=self.master)
+        self.canvas.get_tk_widget().grid(row=0,columnspan=8) 
+        self.quitbutton = Tk.Button(master=self.master, text='Quit', command=self.master.quit).grid(row=2,column=0)
+        self.saveButton = Tk.Button(master=self.master, text="Save Image", command=self.save).grid(row=2,column=4)
+
+        if len(self.tkimages) > 1:
+            self.prevButton = Tk.Button(master=self.master, text="Prev", command=self.prev).grid(row=2,column=3,sticky='E')
+            self.nextButton = Tk.Button(master=self.master, text="Next", command=self.next).grid(row=2,column=5,sticky='W')
+            
 
         self.drawGraph()
 
@@ -359,7 +377,7 @@ class tkGUI:
         self.drawGraph()
 
     def save(self):
-        self.fig.savefig('camera_position.png.png')
+        self.fig.savefig('camera_position.png')
         messagebox.showinfo("alert" , "Current plot saved as camera_position.png")
         print("image saved")
 
@@ -368,23 +386,18 @@ class tkGUI:
 
         print("drawing graph", self.index) 
 
-        self.fig    = Figure()
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.master)
-        self.canvas.get_tk_widget().grid(row=0,columnspan=8) #.pack(side=Tk.LEFT)  
+        for widget in self.master.winfo_children():
 
-        self.panel = Tk.Label(master=self.master, image = self.tkimages[self.index]).grid(row=0,column=8)
-        #self.panel.pack(side = Tk.RIGHT)
-
-        self.quitbutton = Tk.Button(master=self.master, text='Quit', command=self.master.quit).grid(row=1,column=0)
-        self.saveButton = Tk.Button(master=self.master, text="Save Image", command=self.save).grid(row=1,column=4)
-
+            if widget.widgetName == "coordinates" or widget.widgetName == "image":
+                widget.destroy()
+    
+        self.fig.clear()
+        self.panel = Tk.Label(name="image", master=self.master, image = self.tkimages[self.index]).grid(row=0,column=8)
+        self.coordinates = Tk.Label(name="coordinates",master=self.master, text="x={:.0f} y={:.0f} z={:.0f} (cm)".format(self.camera_positions[self.index][0],self.camera_positions[self.index][1],self.camera_positions[self.index][2])).grid(row=1,column=4)
         if len(self.tkimages) > 1:
-            self.prevButton = Tk.Button(master=self.master, text="Prev", command=self.prev).grid(row=1,column=3,sticky='E')
-            self.nextButton = Tk.Button(master=self.master, text="Next", command=self.next).grid(row=1,column=5,sticky='W')
-
-        self.canvas.mpl_connect('key_press_event', self.on_key_event)
+            self.canvas.mpl_connect('key_press_event', self.on_key_event)
         self.master.protocol("WM_DELETE_WINDOW", self.master.quit)
-        
+            
         # points for QR code centered to be drawn in the plot. Centered at 0,0
         # | C |     | B |
         # |_ _|     |___|
@@ -410,11 +423,11 @@ class tkGUI:
         rcParams['legend.fontsize'] = 11    # legend font size
         
         self.ax.set_xlabel('X axis (cm)')
-        self.ax.set_xlim(-40,40)
+        self.ax.set_xlim(-self.max_x, self.max_x)
         self.ax.set_ylabel('Y axis (cm)')
-        self.ax.set_ylim(-40, 40)
+        self.ax.set_ylim(-self.max_y, self.max_y)
         self.ax.set_zlabel('Z axis (cm)')
-        self.ax.set_zlim(0, 80)
+        self.ax.set_zlim( 0,     self.max_z)
 
         if 'elev' in locals():
             self.ax.view_init(elev=elev, azim=azim)             # use old camera elevation and angle 
@@ -460,6 +473,7 @@ class tkGUI:
                 self.ax.plot([camera_render[2][0], camera_render[3][0]], [camera_render[2][1], camera_render[3][1]], zs=[camera_render[2][2], camera_render[3][2]], color = phonecolor, alpha = alpha)
                 self.ax.plot([camera_render[3][0], camera_render[0][0]], [camera_render[3][1], camera_render[0][1]], zs=[camera_render[3][2], camera_render[0][2]], color = phonecolor, alpha = alpha)
 
+        self.canvas.draw()
 
 def main ():
 
@@ -475,13 +489,13 @@ def main ():
         filenames = [filename for filename in glob.glob("imgs/*.JPG")+glob.glob("imgs/*.jpg")]
 
     
-    cvimages, tkimages, image_sizes                  = loadImages(filenames)
-    corner_points                                    = getCornersOfQRCode(cvimages)
-    camera_positions, camera_pointsAt, camera_render = getCameraLocationInfo(corner_points, image_sizes)
+    cvimages, tkimages, image_sizes                                       = loadImages(filenames)
+    corner_points                                                         = getCornersOfQRCode(cvimages)
+    camera_positions, camera_pointsAt, camera_render, max_x, max_y, max_z = getCameraLocationInfo(corner_points, image_sizes)
 
     print("ready")
 
-    gui = tkGUI(root,tkimages,camera_positions,camera_pointsAt,camera_render)
+    gui = tkGUI(root,tkimages,camera_positions,camera_pointsAt,camera_render, max_x, max_y, max_z)
     Tk.mainloop() 
 
 
